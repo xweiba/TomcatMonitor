@@ -21,7 +21,10 @@ DeployDir="/www/server/tomcat/webapps/taskTwo/"
 work_path=$(dirname $(readlink -f $0))
 # 监控日志路径
 LogDir=/www/wwwlogs/liuhuan.ml.access.log
+# 取日志文件名 cut 使用 / 将 LogDir 分割为4个域
 LogName=$(echo "$LogDir" | cut -d '/' -f 4 )
+# API日志文件
+DebugDir=/www/server/tomcat/webapps/taskTwo/logs/controller/debug-log.log
 # 系统版本
 OS_NAME=$(cat /etc/system-release)
 # 监控网口名
@@ -29,7 +32,7 @@ eth=eth0
 
 # 检测是否以root权限运行脚本
 # whoami是操作系统中用于查看当前有效用户名的命令
-# >&2 以错误的提示方式输出此句话 0 代表鍵盤輸入 1 代表螢幕輸出
+# >&2 以错误的提示方式输出此句话 0 代表???入 1 代表?幕?出
 if [[ "$(whoami)" != "root" ]]; then
     echo "请以root用户运行此脚本" >&2
     exit 1
@@ -208,8 +211,21 @@ function Monitor() {
     TopUrl5=$(grep -v "-" "$LogDir" | awk '{print $11}' | sort | uniq -c | sort -rn | head -n 5)
     # 每分钟请求数
     TopTime5=$(awk '{print $2}' "$LogDir"| cut -c 16-17 | sort | uniq -c | sort -nr | head -n 5)
-    # 传输时间大于0.001秒的页面
-    TopTime=$(grep -v "-" "$LogDir" | awk '{if($NF>0.001) print $11}' | sort | uniq -c | sort -rn  | head -n 5)
+    # 传输时间大于10ms的页面
+    TopTime=$(grep -v "-" "$LogDir" | awk '{if(($NF*1000)>10) print $11}' | sort | uniq -c | sort -rn  | head -n 5)
+
+    # 接口响应时间
+    # 当前访问url
+    JustUrl=$(cat "$LogDir" | tail -n 1 | awk '{print $5}')
+    # Controller响应信息
+    ControllerTimer=$(grep "性能日志 Controller类" "$DebugDir" | tail -n 1 | awk '{for(i=9;i<=NF;i++) printf $i""FS;print ""}')
+    # DB 响应信息
+    DBTimer=$(grep "性能日志 DB类" "$DebugDir" | tail -n 1 | awk '{for(i=9;i<=NF;i++) printf $i""FS;print ""}' )
+    # 后端页面生成时间
+    ServiceCreateWebTimer=$(grep "性能日志 页面生成时长" "$DebugDir" | tail -n 1 | awk '{print $NF}' | tail -n 1)
+    # Nginx 页面传输时间
+        NginxCreateWebTimer=$(cat "$LogDir" | tail -n 1 | awk '{print $NF * 1000"ms"}')
+
 
     # 内存
     # 空闲内存 NR>2{print p}{p=$1}:去掉最后一行和第一行
@@ -267,7 +283,14 @@ function Monitor() {
     echo "------------------------------"
     # 打印实时流量
     echo -e "$eth \t $RX   $TX "
-    echo -e "- \t $LogName \t -"
+    echo "===== $LogName ====="
+    echo "----- 最近一次接口响应数据 -----"
+    echo "访问url: $JustUrl"
+    echo -e "Controller信息:\t$ControllerTimer"
+    echo -e "DB接口信息: \t$DBTimer"
+    echo "后端页面生成时间:   $ServiceCreateWebTimer"
+    echo "服务器页面传输时间: $NginxCreateWebTimer"
+    echo "------------------------------"
     echo -e "\t Top10 ip"
     echo "访问次数 IP"
     echo "$TopIp10"
@@ -276,7 +299,7 @@ function Monitor() {
     echo "访问次数 页面"
     echo "$TopUrl5"
     echo "------------------------------"
-    echo -e "\t Top5 传输时间大于0.001秒的页面"
+    echo -e "\t Top5 传输时间大于10ms的页面"
     echo "统计次数 页面"
     echo "$TopTime"
      echo "------------------------------"
